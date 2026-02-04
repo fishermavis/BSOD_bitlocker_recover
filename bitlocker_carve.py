@@ -1,29 +1,42 @@
 ###Thank you to https://github.com/WithSecureLabs/bitlocker-spi-toolkit for the initial code which made this possible
+##Added functionality so that only 100mb of a file is loaded to memory at any given type so tool can be used for large disk dumps
 
 import re
 import os
 import sys
 
-def find_keys(file_path): #Check for MEMORY.DMP file
-    
+def find_keys(file_path):
     if not os.path.isfile(file_path):
         print(f"[-] File {file_path} not found. Please try again.")
         return []
 
     print(f"[+] Found {file_path}.")
 
+    chunk_size = 100 * 1024 * 1024  # 100MB
+    overlap = 1 * 1024 * 1024  # 1MB
+    found_keys = set()
+
     try:
-        with open(file_path, 'rb') as f:    #Open the BSOD dumo
-            binary_data = f.read()          #Read entrie file
-        
-        data = binary_data.hex()            #Convert the file data to a hex string
+        with open(file_path, 'rb') as f:
+            while True:
+                current_pos = f.tell()
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
 
-        keys = re.findall(                  #Search BSOD for Volume Master Key Header 
-            r'2c000[0-6]000[1-9]000[0-1]000[0-5]200000(\w{64})', data)
+                data = chunk.hex()
 
-        filtered_keys = [key for key in keys if not re.search(r'00{5,}', key)] #Remove false possitive with 4 consecutive '00' bytes
+                keys = re.findall(
+                    r'2c000[0-6]000[1-9]000[0-1]000[0-5]200000(\w{64})', data)
 
-        return filtered_keys #Return found keys or empty list
+                for key in keys:
+                    if not re.search(r'00{5,}', key):
+                        found_keys.add(key)
+
+                if f.tell() < os.path.getsize(file_path):
+                    f.seek(current_pos + chunk_size - overlap)
+                
+        return list(found_keys)
     except Exception as e:
         print(f"An error occurred: {e}")
         return []
